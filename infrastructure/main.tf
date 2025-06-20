@@ -213,23 +213,42 @@ resource "aws_ecs_task_definition" "app" {
   memory                   = "1024"
   execution_role_arn       = aws_iam_role.ecs_exec.arn
 
-  container_definitions = jsonencode([{
-    name      = "ror-container",
-    image     = "${data.aws_ecr_repository.app.repository_url}:v1.0.0",
-    essential = true,
-    portMappings = [{ containerPort = 3000 }],
-    environment = [
-      { name = "RDS_DB_NAME",     value = aws_db_instance.postgres.db_name },
-      { name = "RDS_USERNAME",    value = aws_db_instance.postgres.username },
-      { name = "RDS_PASSWORD",    value = "securepassword" },
-      { name = "RDS_HOSTNAME",    value = aws_db_instance.postgres.address },
-      { name = "RDS_PORT",        value = tostring(aws_db_instance.postgres.port) },
-      { name = "S3_BUCKET_NAME",  value = aws_s3_bucket.app.bucket },
-      { name = "S3_REGION_NAME",  value = var.aws_region },
-      { name = "LB_ENDPOINT",     value = aws_lb.app.dns_name }
-    ]
-  }])
+  container_definitions = jsonencode([
+    {
+      name      = "rails_app"
+      image     = "${data.aws_ecr_repository.app.repository_url}:rails"
+      essential = true
+      portMappings = [
+        { containerPort = 3000 }
+      ]
+      environment = [
+        { name = "RDS_DB_NAME",     value = aws_db_instance.postgres.db_name },
+        { name = "RDS_USERNAME",    value = aws_db_instance.postgres.username },
+        { name = "RDS_PASSWORD",    value = "securepassword" },
+        { name = "RDS_HOSTNAME",    value = aws_db_instance.postgres.address },
+        { name = "RDS_PORT",        value = tostring(aws_db_instance.postgres.port) },
+        { name = "S3_BUCKET_NAME",  value = aws_s3_bucket.app.bucket },
+        { name = "S3_REGION_NAME",  value = var.aws_region },
+        { name = "LB_ENDPOINT",     value = aws_lb.app.dns_name }
+      ]
+    },
+    {
+      name      = "nginx"
+      image     = "${data.aws_ecr_repository.app.repository_url}:nginx"
+      essential = true
+      portMappings = [
+        { containerPort = 80 }
+      ]
+      dependsOn = [
+        {
+          containerName = "rails_app"
+          condition     = "START"
+        }
+      ]
+    }
+  ])
 }
+
 
 # Application Load Balancer (in public subnets)
 resource "aws_lb" "app" {
@@ -242,12 +261,12 @@ resource "aws_lb" "app" {
 
 resource "aws_lb_target_group" "app" {
   name        = "ror-tg"
-  port        = 3000
+  port        = 80                            # changed from 3000 to 80
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
   health_check {
-    path                = "/"
+    path                = "/"                 # ensure Rails responds here
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -255,6 +274,7 @@ resource "aws_lb_target_group" "app" {
     matcher             = "200-399"
   }
 }
+
 
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.app.arn
@@ -266,6 +286,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+
 # ECS Service (in private subnets)
 resource "aws_ecs_service" "app" {
   name            = "ror-service"
@@ -273,18 +294,22 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+  
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.ecs.id]
     assign_public_ip = false
   }
+
   load_balancer {
     target_group_arn = aws_lb_target_group.app.arn
-    container_name   = "ror-container"
-    container_port   = 3000
+    container_name   = "nginx"               # changed from "ror-container"
+    container_port   = 80                    # changed from 3000
   }
+
   depends_on = [aws_lb_listener.http]
 }
+
 
 # Output
 output "load_balancer_dns" {
