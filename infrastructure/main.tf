@@ -3,11 +3,11 @@ provider "aws" {
 }
 
 variable "aws_region" {
-  default = "ca-central-1"
+  default = "us-east-2"
 }
 
 variable "azs" {
-  default = ["ca-central-1a", "ca-central-1b"]
+  default = ["us-east-2a", "us-east-2b"]
 }
 
 # VPC
