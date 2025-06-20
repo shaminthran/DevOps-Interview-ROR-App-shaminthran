@@ -171,7 +171,7 @@ resource "aws_ecs_cluster" "main" {
 }
 
 # IAM Role for ECS
-/ resource "aws_iam_role" "ecs_exec" {
+resource "aws_iam_role" "ecs_exec" {
   name = "ecs-exec-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
