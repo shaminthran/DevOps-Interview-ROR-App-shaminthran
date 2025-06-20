@@ -3,11 +3,11 @@ provider "aws" {
 }
 
 variable "aws_region" {
-  default = "me-south-1"
+  default = "ap-south-1"
 }
 
 variable "azs" {
-  default = ["me-south-1a", "me-south-1b"]
+  default = ["ap-south-1a", "ap-south-1b"]
 }
 
 variable "image_tag" {
