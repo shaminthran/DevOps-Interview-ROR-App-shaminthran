@@ -10,10 +10,6 @@ variable "azs" {
   default = ["ap-south-1a", "ap-south-1b"]
 }
 
-variable "image_tag" {
-  default = "v1.0.0"
-}
-
 # VPC
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -22,7 +18,7 @@ resource "aws_vpc" "main" {
   tags = { Name = "ror-vpc" }
 }
 
-# Public Subnets
+# Public Subnets (for ALB)
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -32,7 +28,7 @@ resource "aws_subnet" "public" {
   tags = { Name = "ror-public-${count.index}" }
 }
 
-# Private Subnets
+# Private Subnets (for ECS, RDS)
 resource "aws_subnet" "private" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -47,7 +43,7 @@ resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
 }
 
-# Route Table - Public
+# Route Table for Public Subnets
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
   route {
@@ -62,15 +58,12 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# NAT Gateway
-resource "aws_eip" "nat" {
-  domain = "vpc"
-}
+# NAT Gateway for Private Subnets
+resource "aws_eip" "nat" {}
 
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
-  depends_on    = [aws_internet_gateway.gw]
 }
 
 resource "aws_route_table" "private" {
@@ -87,18 +80,18 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private.id
 }
 
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name = "/ecs/ror-task"
+# ECR (existing repo)
+data "aws_ecr_repository" "app" {
+  name = "ror-app-repo-nginx"
 }
 
-# S3
+# S3 Bucket
 resource "aws_s3_bucket" "app" {
   bucket        = "ror-app-bucket-fixed"
   force_destroy = true
 }
 
-# RDS
+# RDS (in private subnets)
 resource "aws_db_subnet_group" "default" {
   name       = "ror-db-subnet-group"
   subnet_ids = aws_subnet.private[*].id
@@ -112,7 +105,7 @@ resource "aws_db_instance" "postgres" {
   allocated_storage       = 20
   db_name                 = "rails"
   username                = "postgres"
-  password                = "securepassword"
+  password                = "postgres"
   skip_final_snapshot     = true
   publicly_accessible     = false
   vpc_security_group_ids  = [aws_security_group.rds.id]
@@ -147,12 +140,6 @@ resource "aws_security_group" "ecs" {
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-  ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -183,7 +170,7 @@ resource "aws_ecs_cluster" "main" {
   name = "ror-cluster"
 }
 
-# IAM Role
+# IAM Role for ECS
 resource "aws_iam_role" "ecs_exec" {
   name = "ecs-exec-role"
   assume_role_policy = jsonencode({
@@ -209,71 +196,42 @@ resource "aws_iam_role_policy" "s3_policy" {
     Statement = [{
       Effect = "Allow",
       Action = ["s3:*"],
-      Resource = [aws_s3_bucket.app.arn, "${aws_s3_bucket.app.arn}/*"]
+      Resource = [
+        aws_s3_bucket.app.arn,
+        "${aws_s3_bucket.app.arn}/*"
+      ]
     }]
   })
 }
 
-# ECR Repositories
-data "aws_ecr_repository" "app" {
-  name = "ror-app-repo-app"
-}
-
-data "aws_ecr_repository" "nginx" {
-  name = "ror-app-repo-nginx"
-}
-
-# Task Definitions
-resource "aws_ecs_task_definition" "app_combined" {
-  family                   = "ror-app-combined"
+# ECS Task Definition
+resource "aws_ecs_task_definition" "app" {
+  family                   = "ror-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "1024"
-  memory                   = "2048"
+  cpu                      = "512"
+  memory                   = "1024"
   execution_role_arn       = aws_iam_role.ecs_exec.arn
 
-  container_definitions = jsonencode([
-    {
-      name  = "rails-app",
-      image = "${data.aws_ecr_repository.app.repository_url}:${var.image_tag}",
-      essential = true,
-      portMappings = [{ containerPort = 3000 }],
-      environment = [
-        { name = "RDS_DB_NAME", value = aws_db_instance.postgres.db_name },
-        { name = "RDS_USERNAME", value = aws_db_instance.postgres.username },
-        { name = "RDS_PASSWORD", value = "securepassword" },
-        { name = "RDS_HOSTNAME", value = aws_db_instance.postgres.address },
-        { name = "RDS_PORT", value = tostring(aws_db_instance.postgres.port) },
-        { name = "S3_BUCKET_NAME", value = aws_s3_bucket.app.bucket },
-        { name = "S3_REGION_NAME", value = var.aws_region }
-      ],
-      logConfiguration = {
-        logDriver = "awslogs",
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name,
-          awslogs-region        = var.aws_region,
-          awslogs-stream-prefix = "rails"
-        }
-      }
-    },
-    {
-      name  = "nginx",
-      image = "${data.aws_ecr_repository.nginx.repository_url}:${var.image_tag}",
-      essential = true,
-      portMappings = [{ containerPort = 80 }],
-      logConfiguration = {
-        logDriver = "awslogs",
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name,
-          awslogs-region        = var.aws_region,
-          awslogs-stream-prefix = "nginx"
-        }
-      }
-    }
-  ])
+  container_definitions = jsonencode([{
+    name      = "ror-container",
+    image     = "${data.aws_ecr_repository.app.repository_url}:v1.0.0",
+    essential = true,
+    portMappings = [{ containerPort = 3000 }],
+    environment = [
+      { name = "RDS_DB_NAME",     value = aws_db_instance.postgres.db_name },
+      { name = "RDS_USERNAME",    value = aws_db_instance.postgres.username },
+      { name = "RDS_PASSWORD",    value = "securepassword" },
+      { name = "RDS_HOSTNAME",    value = aws_db_instance.postgres.address },
+      { name = "RDS_PORT",        value = tostring(aws_db_instance.postgres.port) },
+      { name = "S3_BUCKET_NAME",  value = aws_s3_bucket.app.bucket },
+      { name = "S3_REGION_NAME",  value = var.aws_region },
+      { name = "LB_ENDPOINT",     value = aws_lb.app.dns_name }
+    ]
+  }])
 }
 
-# Load Balancer
+# Application Load Balancer (in public subnets)
 resource "aws_lb" "app" {
   name               = "ror-lb"
   internal           = false
@@ -284,7 +242,7 @@ resource "aws_lb" "app" {
 
 resource "aws_lb_target_group" "app" {
   name        = "ror-tg"
-  port        = 80
+  port        = 3000
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
@@ -308,29 +266,27 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# ECS Service (in private subnets)
 resource "aws_ecs_service" "app" {
-  name            = "ror-app-service"
+  name            = "ror-service"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app_combined.arn
+  task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
   launch_type     = "FARGATE"
-
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.ecs.id]
     assign_public_ip = false
   }
-
   load_balancer {
     target_group_arn = aws_lb_target_group.app.arn
-    container_name   = "nginx"
-    container_port   = 80
+    container_name   = "ror-container"
+    container_port   = 3000
   }
-
   depends_on = [aws_lb_listener.http]
 }
 
-
+# Output
 output "load_balancer_dns" {
   value = aws_lb.app.dns_name
 }
