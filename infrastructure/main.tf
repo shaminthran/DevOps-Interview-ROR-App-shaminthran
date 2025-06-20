@@ -86,7 +86,7 @@ data "aws_ecr_repository" "app" {
 }
 
 resource "aws_s3_bucket" "app" {
-  bucket        = "ror-app-bucket"
+  bucket        = "ror-app-buckets"
   force_destroy = true
 }
 
