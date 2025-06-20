@@ -3,11 +3,11 @@ provider "aws" {
 }
 
 variable "aws_region" {
-  default = "us-east-2"
+  default = "ap-southeast-1"
 }
 
 variable "azs" {
-  default = ["us-east-2a", "us-east-2b"]
+  default = ["ap-southeast-1a", "ap-southeast-1b"]
 }
 
 # VPC
@@ -88,7 +88,6 @@ data "aws_ecr_repository" "app" {
 # S3 Bucket
 resource "aws_s3_bucket" "app" {
   bucket        = "ror-app-bucket-fixed-canada"
-  force_destroy = true
 }
 
 # RDS (in private subnets)
