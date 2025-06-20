@@ -3,11 +3,11 @@ provider "aws" {
 }
 
 variable "aws_region" {
-  default = "ap-south-1"
+  default = "ca-central-1"
 }
 
 variable "azs" {
-  default = ["ap-south-1a", "ap-south-1b"]
+  default = ["ca-central-1a", "ca-central-1b"]
 }
 
 # VPC
@@ -87,7 +87,7 @@ data "aws_ecr_repository" "app" {
 
 # S3 Bucket
 resource "aws_s3_bucket" "app" {
-  bucket        = "ror-app-bucket-fixed"
+  bucket        = "ror-app-bucket-fixed-canada"
   force_destroy = true
 }
 
@@ -171,7 +171,7 @@ resource "aws_ecs_cluster" "main" {
 }
 
 # IAM Role for ECS
-resource "aws_iam_role" "ecs_exec" {
+/ resource "aws_iam_role" "ecs_exec" {
   name = "ecs-exec-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
