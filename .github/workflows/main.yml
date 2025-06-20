@@ -1,0 +1,49 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Get ECR repo URI
+        id: ecr
+        run: |
+          URI=$(aws ecr describe-repositories --repository-names ror-app-repo-nginx --query 'repositories[0].repositoryUri' --output text)
+          echo "repo_uri=$URI" >> $GITHUB_OUTPUT
+
+      - name: Build and Push Rails Image
+        run: |
+          docker build -t ${{ steps.ecr.outputs.repo_uri }}:rails -f docker/app/Dockerfile .
+          docker push ${{ steps.ecr.outputs.repo_uri }}:rails
+
+      - name: Build and Push Nginx Image
+        run: |
+          docker build -t ${{ steps.ecr.outputs.repo_uri }}:nginx -f docker/nginx/Dockerfile .
+          docker push ${{ steps.ecr.outputs.repo_uri }}:nginx
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform Init and Apply
+        working-directory: infrastructure
+        run: |
+          terraform init
+          terraform apply -auto-approve
