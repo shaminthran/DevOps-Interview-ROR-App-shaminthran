@@ -196,8 +196,8 @@ resource "aws_iam_role_policy" "s3_policy" {
       Effect = "Allow",
       Action = ["s3:*"],
       Resource = [
-        aws_s3_bucket.app.arn,
-        "${aws_s3_bucket.app.arn}/*"
+        data.aws_s3_bucket.app.arn,
+        "${data.aws_s3_bucket.app.arn}/*"
       ]
     }]
   })
@@ -226,7 +226,7 @@ resource "aws_ecs_task_definition" "app" {
         { name = "RDS_PASSWORD",    value = "securepassword" },
         { name = "RDS_HOSTNAME",    value = aws_db_instance.postgres.address },
         { name = "RDS_PORT",        value = tostring(aws_db_instance.postgres.port) },
-        { name = "S3_BUCKET_NAME",  value = aws_s3_bucket.app.bucket },
+        { name = "S3_BUCKET_NAME",  value = data.aws_s3_bucket.app.bucket },
         { name = "S3_REGION_NAME",  value = var.aws_region },
         { name = "LB_ENDPOINT",     value = aws_lb.app.dns_name }
       ]
