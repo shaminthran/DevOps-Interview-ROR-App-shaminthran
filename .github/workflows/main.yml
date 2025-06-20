@@ -22,7 +22,7 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          IMAGE=$(aws ecr describe-repositories --repository-names ror-app-repo --query 'repositories[0].repositoryUri' --output text)
+          IMAGE=$(aws ecr describe-repositories --repository-names ror-app-repo-nginx --query 'repositories[0].repositoryUri' --output text)
           docker build -t $IMAGE -f docker/nginx/Dockerfile .
           docker push $IMAGE
 
