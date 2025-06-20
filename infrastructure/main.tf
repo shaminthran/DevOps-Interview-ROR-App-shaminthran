@@ -3,11 +3,11 @@ provider "aws" {
 }
 
 variable "aws_region" {
-  default = "ap-southeast-1"
+  default = "eu-west-1"
 }
 
 variable "azs" {
-  default = ["ap-southeast-1a", "ap-southeast-1b"]
+  default = ["eu-west-1a", "eu-west-1b"]
 }
 
 # VPC
@@ -86,8 +86,8 @@ data "aws_ecr_repository" "app" {
 }
 
 # S3 Bucket
-resource "aws_s3_bucket" "app" {
-  bucket        = "ror-app-bucket-fixed-canada"
+data "aws_s3_bucket" "app" {
+  bucket        = "ror-app-bucket-fixed-hello"
 }
 
 # RDS (in private subnets)
